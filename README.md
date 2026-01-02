@@ -46,4 +46,4 @@ print(spectral_cpd(y, T))
 ```
 
 ## Developer
-[kernel](https://github.com/lamtung16/spectral-attention-kernel-cpd/blob/main/source.py#L4)
+[kernel](https://github.com/lamtung16/spectral-attention-kernel-cpd/blob/main/kernelcpd.py#L4)
