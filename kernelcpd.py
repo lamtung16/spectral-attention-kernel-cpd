@@ -2,9 +2,26 @@ import numpy as np
 
 # kernel
 def k(X, Y, sigma=1.0):
-    sq_norms = np.sum((X - Y) ** 2, axis=1)
-    k = np.exp(-sq_norms / (2 * sigma ** 2))
-    return np.mean(k)
+    T = X.shape[0]
+
+    # generate L_chain
+    L = np.zeros((T, T))
+    for i in range(T):
+        if i == 0 or i == T - 1:
+            L[i, i] = 1
+        else:
+            L[i, i] = 2
+        if i - 1 >= 0:
+            L[i, i - 1] = -1
+        if i + 1 < T:
+            L[i, i + 1] = -1
+    
+    # generate G
+    diff = X[:, None, :] - Y[None, :, :]
+    sq_dist = np.sum(diff**2, axis=2)
+    G = np.exp(-sq_dist / (2 * sigma**2))
+
+    return np.trace(L @ G)
 
 
 # algorithm
@@ -44,11 +61,11 @@ def spectral_cpd(y: np.ndarray, T: int) -> int:
         raise TypeError("k must be a kernel")
 
     # ---- algorithm ----
-    maxMMD = 0
+    maxMMD = -np.inf
     s_star = 0
     for s in range(T - 1, n - T):
-        L, R = np.arange(s), np.arange(s, n - T)
-        mL, mR = s + 1, n - s
+        L, R = np.arange(s - T + 2), np.arange(s + 1, n - T + 1)
+        mL, mR = len(L), len(R)
         MMD = sum(k(y[i:i+T], y[j:j+T]) for i in L for j in L if i != j) / (mL * (mL - 1)) \
             + sum(k(y[i:i+T], y[j:j+T]) for i in R for j in R if i != j) / (mR * (mR - 1)) \
             - 2 * sum(k(y[i:i+T], y[j:j+T]) for i in L for j in R) / (mL * mR)
