@@ -1,29 +1,20 @@
 # Kernel Change-Point Detection with Spectral Attention
 ## Algorithm
 ### Inputs
-- observation `y` $ \in R^{n \times d}$  (`n`time steps, `d` features)
-- chunk size `T` $ \in N^+$
+- sequence `Y` (`n`time steps, `d` features)
+- penalty value `pen` (penalize the changepoint presence)
+- model `srbf` (Spectral Radial Basis Function)
+- chunk size `T`
 
 ### Output
-- split point `s_star`
-### Pseudocode
-```
-// initialization
-kernel k
-maxMMD = 0
-s_star = 1
-
-// evaluate all split point candidates s
-for s = T to n-T+1:
-    MMD(s) is a real value depending on (y, T, k, s)
-    if MMD(s) > maxMMD:
-        maxMMD = MMD(s)
-        s_star = s
-```
+- change points
 
 ## Example:
 Example of an expected split point of `y` is 5 (`python` index is 4):
 ```python
+import numpy as np
+from kernelcpd import pelt
+
 y = np.array([
     [1.5,  3.6],
     [1.4,  3.5],
@@ -37,13 +28,11 @@ y = np.array([
     [3.6,  1.4],
 ])
 
-T = 2
-
-print(spectral_cpd(y, T))
+print(pelt(sequence = y, pen = 0.2, model = 'srbf', T = 2))
 ```
 ```bash
-4
+[4]
 ```
 
 ## Developer
-[kernel](https://github.com/lamtung16/spectral-attention-kernel-cpd/blob/main/kernelcpd.py#L4)
+[spectral rbf kernel](https://github.com/lamtung16/spectral-attention-kernel-cpd/blob/main/kernelcpd.py#L11)
