@@ -9,10 +9,10 @@ def L2(seg, T):
 
 # spectral rbf kernel
 @njit
-def k(X, Y, sigma=1.0, m=1.0):
-    T = X.shape[0]
-    D = X.shape[1]
+def k(X, Y, sigma=1.0, m=1):
+    T, D = X.shape
 
+    # Construct L
     L = np.zeros((T, T))
     for i in range(T):
         if i == 0 or i == T - 1:
@@ -24,6 +24,15 @@ def k(X, Y, sigma=1.0, m=1.0):
         if i + 1 < T:
             L[i, i + 1] = -1.0
 
+    # L^m
+    if m > 1:
+        Lm = L.copy()
+        for _ in range(m - 1):
+            Lm = Lm @ L
+    else:
+        Lm = L
+
+    # Gaussian kernel G
     G = np.zeros((T, T))
     inv_2sigma2 = 1.0 / (2.0 * sigma * sigma)
 
@@ -35,12 +44,14 @@ def k(X, Y, sigma=1.0, m=1.0):
                 sq_dist += diff * diff
             G[i, j] = np.exp(-sq_dist * inv_2sigma2)
 
+    # result = sum_{i,j} L^m_{ij} G_{ji}
     result = 0.0
     for i in range(T):
         for j in range(T):
-            result += L[i, j]**m * G[j, i]
+            result += Lm[i, j] * G[j, i]
 
     return result
+
 
 # spectral rbf
 @njit
