@@ -4,7 +4,7 @@ from numba import njit
 
 ################# SEGMENT COST ################
 # L2
-def L2(seg, T):
+def L2(seg, T, m):
     return seg.size * seg.var()
 
 # spectral rbf kernel
@@ -55,7 +55,7 @@ def k(X, Y, sigma=1.0, m=1):
 
 # spectral rbf
 @njit
-def srbf(seg, T):
+def srbf(seg, T, m):
     n_total, d = seg.shape
     n_seg = n_total - T + 1
     seg_array = np.empty((n_seg, T, d))
@@ -71,10 +71,10 @@ def srbf(seg, T):
 
     for i in range(n):
         X_i = seg_array[i].reshape(-1, 1)
-        sum_k_xx += k(X_i, X_i)
+        sum_k_xx += k(X_i, X_i, m)
         for j in range(n):
             X_j = seg_array[j].reshape(-1, 1)
-            sum_k_xy += k(X_i, X_j)
+            sum_k_xy += k(X_i, X_j, m)
     
     var_h = (sum_k_xx / n) - (sum_k_xy / (n * n))
     return n * var_h
@@ -88,7 +88,7 @@ L = {
 
 
 ################# DYNAMIC PROGRAMMING ################
-def pelt(sequence, pen, model, T=1):
+def pelt(sequence, pen, model, T=1, m=1):
     if model == 'L2':
         T = 1
     
@@ -111,9 +111,9 @@ def pelt(sequence, pen, model, T=1):
         # Evaluate all candidates and choose the best one
         for tau in R:
             if tau == 0:
-                value = L[model](sequence[tau:t+T-1], T)
+                value = L[model](sequence[tau:t+T-1], T, m)
             else:
-                value = C[tau - T + 1] + pen + L[model](sequence[tau:t+T-1], T)
+                value = C[tau - T + 1] + pen + L[model](sequence[tau:t+T-1], T, m)
             if value < best_value:
                 best_value = value
                 best_tau = tau
@@ -125,9 +125,9 @@ def pelt(sequence, pen, model, T=1):
         new_R = []
         for tau in R:
             if tau == 0:
-                value_no_pen = L[model](sequence[tau:t+T-1], T)
+                value_no_pen = L[model](sequence[tau:t+T-1], T, m)
             else:
-                value_no_pen = C[tau - T + 1] + L[model](sequence[tau:t+T-1], T)
+                value_no_pen = C[tau - T + 1] + L[model](sequence[tau:t+T-1], T, m)
             if value_no_pen <= C[t]:
                 new_R.append(tau)
 
@@ -147,3 +147,62 @@ def trace_back(tau_star):
         chpnt = np.append(tau, chpnt)
         tau = tau_star[tau-1]
     return chpnt[:-1]
+
+
+################# BINARY SEGMENTATION ################
+
+def binseg(sequence, model, n_changepoints=1, T=1, m=1):
+    if model == 'L2':
+        T = 1
+
+    n = len(sequence)
+    changepoints = []
+
+    def find_best_split(start, end):
+        best_cost = np.inf
+        best_tau = None
+
+        for tau in range(start + T, end - T + 1):
+            cost = (
+                L[model](sequence[start:tau], T, m) +
+                L[model](sequence[tau:end], T, m)
+            )
+            if cost < best_cost:
+                best_cost = cost
+                best_tau = tau
+
+        return best_tau, best_cost
+
+    segments = [(0, n)]
+
+    while len(changepoints) < n_changepoints:
+        best_improvement = -np.inf
+        best_split = None
+        best_segment_idx = None
+
+        for i, (start, end) in enumerate(segments):
+            if end - start < 2 * T:
+                continue
+
+            current_cost = L[model](sequence[start:end], T, m)
+            tau, split_cost = find_best_split(start, end)
+
+            if tau is None:
+                continue
+
+            improvement = current_cost - split_cost
+            if improvement > best_improvement:
+                best_improvement = improvement
+                best_split = tau
+                best_segment_idx = i
+
+        if best_split is None or best_improvement <= 0:
+            break
+
+        start, end = segments.pop(best_segment_idx)
+        segments.insert(best_segment_idx, (start, best_split))
+        segments.insert(best_segment_idx + 1, (best_split, end))
+
+        changepoints.append(best_split)
+
+    return np.array(sorted(changepoints)) - 1
