@@ -4,15 +4,45 @@ from numba import njit
 
 ################# SEGMENT COST ################
 # L2
-def L2(seg, T, m):
+def L2(seg, T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam):
     return seg.size * seg.var()
+
 
 # spectral rbf kernel
 @njit
-def k(X, Y, sigma=1.0, m=1):
+def heat_kernel(L, tau):
+    eigvals, eigvecs = np.linalg.eigh(L)
+    exp_eigvals = np.exp(-tau * eigvals)
+    T = L.shape[0]
+    Lm = np.zeros((T, T))
+    for i in range(T):
+        for j in range(T):
+            s = 0.0
+            for k in range(T):
+                s += eigvecs[i, k] * exp_eigvals[k] * eigvecs[j, k]
+            Lm[i, j] = s
+    return Lm
+
+
+@njit
+def h1_kernel(L, alpha):
+    eigvals, eigvecs = np.linalg.eigh(L)
+    T = L.shape[0]
+    Lm = np.zeros((T, T))
+    for i in range(T):
+        for j in range(T):
+            s = 0.0
+            for k in range(T):
+                s += eigvecs[i, k] * (eigvals[k] + alpha) * eigvecs[j, k]
+            Lm[i, j] = s
+    return Lm
+
+
+@njit
+def k(X, Y, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
     T, D = X.shape
 
-    # Construct L
+    # Construct Lm
     L = np.zeros((T, T))
     for i in range(T):
         if i == 0 or i == T - 1:
@@ -23,14 +53,17 @@ def k(X, Y, sigma=1.0, m=1):
             L[i, i - 1] = -1.0
         if i + 1 < T:
             L[i, i + 1] = -1.0
-
-    # L^m
-    if m > 1:
-        Lm = L.copy()
-        for _ in range(m - 1):
-            Lm = Lm @ L
-    else:
+        
+    if laplace_option == 'dirichlet':                   # L
         Lm = L
+    elif laplace_option == 'tps':                       # L^m
+        Lm = L.copy()
+        for _ in range(laplace_hyperparameter - 1):
+            Lm = Lm @ L
+    elif laplace_option == 'heat':                      # exp(-tau L)
+        Lm = heat_kernel(L, laplace_hyperparameter)
+    elif laplace_option == 'h1':                        # sobolev H1
+        Lm = h1_kernel(L, laplace_hyperparameter)
 
     # Gaussian kernel G
     G = np.zeros((T, T))
@@ -44,18 +77,34 @@ def k(X, Y, sigma=1.0, m=1):
                 sq_dist += diff * diff
             G[i, j] = np.exp(-sq_dist * inv_2sigma2)
 
-    # result = sum_{i,j} L^m_{ij} G_{ji}
-    result = 0.0
-    for i in range(T):
-        for j in range(T):
-            result += Lm[i, j] * G[j, i]
-
+    # kernel
+    if kernel_type == 'linear':
+        result = 0.0
+        for i in range(T):
+            for j in range(T):
+                result += Lm[i, j] * G[j, i]
+    else:
+        acc = 0.0
+        for i in range(T):
+            for j in range(T):
+                d = 0.0
+                for k in range(D):
+                    diff = X[i, k] - Y[j, k]
+                    d += diff * diff
+                acc += Lm[i, j] * d
+        if kernel_type == 'gaussian':
+            sigma2 = nonlinear_hyperparam * nonlinear_hyperparam
+            result = np.exp(-acc / sigma2)
+        elif kernel_type == 'laplace':
+            gamma = nonlinear_hyperparam
+            result = np.exp(-gamma * np.sqrt(acc))
+    
     return result
 
 
 # spectral rbf
 @njit
-def srbf(seg, T, m):
+def srbf(seg, T, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
     n_total, d = seg.shape
     n_seg = n_total - T + 1
     seg_array = np.empty((n_seg, T, d))
@@ -71,24 +120,24 @@ def srbf(seg, T, m):
 
     for i in range(n):
         X_i = seg_array[i].reshape(-1, 1)
-        sum_k_xx += k(X_i, X_i, m)
+        sum_k_xx += k(X_i, X_i, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
         for j in range(n):
             X_j = seg_array[j].reshape(-1, 1)
-            sum_k_xy += k(X_i, X_j, m)
+            sum_k_xy += k(X_i, X_j, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
     
     var_h = (sum_k_xx / n) - (sum_k_xy / (n * n))
     return n * var_h
 
 
 ################# LIST OF MODEL IN A DICTIONARY ################
-L = {
+Loss = {
     'L2': L2,
     'srbf': srbf,
 }
 
 
 ################# DYNAMIC PROGRAMMING ################
-def pelt(sequence, pen, model, T=1, m=1):
+def pelt(sequence, pen, model, T=1, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
     if model == 'L2':
         T = 1
     
@@ -111,9 +160,9 @@ def pelt(sequence, pen, model, T=1, m=1):
         # Evaluate all candidates and choose the best one
         for tau in R:
             if tau == 0:
-                value = L[model](sequence[tau:t+T-1], T, m)
+                value = Loss[model](sequence[tau:t+T-1], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
             else:
-                value = C[tau - T + 1] + pen + L[model](sequence[tau:t+T-1], T, m)
+                value = C[tau - T + 1] + pen + Loss[model](sequence[tau:t+T-1], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
             if value < best_value:
                 best_value = value
                 best_tau = tau
@@ -125,9 +174,9 @@ def pelt(sequence, pen, model, T=1, m=1):
         new_R = []
         for tau in R:
             if tau == 0:
-                value_no_pen = L[model](sequence[tau:t+T-1], T, m)
+                value_no_pen = Loss[model](sequence[tau:t+T-1], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
             else:
-                value_no_pen = C[tau - T + 1] + L[model](sequence[tau:t+T-1], T, m)
+                value_no_pen = C[tau - T + 1] + Loss[model](sequence[tau:t+T-1], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
             if value_no_pen <= C[t]:
                 new_R.append(tau)
 
@@ -151,7 +200,7 @@ def trace_back(tau_star):
 
 ################# BINARY SEGMENTATION ################
 
-def binseg(sequence, model, n_changepoints=1, T=1, m=1):
+def binseg(sequence, model, n_changepoints=1, T=1, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
     if model == 'L2':
         T = 1
 
@@ -164,8 +213,8 @@ def binseg(sequence, model, n_changepoints=1, T=1, m=1):
 
         for tau in range(start + T, end - T + 1):
             cost = (
-                L[model](sequence[start:tau], T, m) +
-                L[model](sequence[tau:end], T, m)
+                Loss[model](sequence[start:tau], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam) +
+                Loss[model](sequence[tau:end], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
             )
             if cost < best_cost:
                 best_cost = cost
@@ -184,7 +233,7 @@ def binseg(sequence, model, n_changepoints=1, T=1, m=1):
             if end - start < 2 * T:
                 continue
 
-            current_cost = L[model](sequence[start:end], T, m)
+            current_cost = Loss[model](sequence[start:end], T, sigma, laplace_option, laplace_hyperparameter, kernel_type, centered, nonlinear_hyperparam)
             tau, split_cost = find_best_split(start, end)
 
             if tau is None:

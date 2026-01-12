@@ -13,7 +13,7 @@
 Example of an expected split point of `y` is 5 (`python` index is 4):
 ```python
 import numpy as np
-from kernelcpd import pelt
+from kernelcpd import pelt, binseg
 
 y = np.array([
     [1.5,  3.6],
@@ -28,7 +28,16 @@ y = np.array([
     [3.6,  1.4],
 ])
 
-print(pelt(sequence = y, pen = 0.2, model = 'srbf', T = 2))
+binseg( sequence = y, 
+        n_changepoints = 1, 
+        model = 'srbf', 
+        T = 1,
+        sigma = 1,
+        laplace_option = 'dirichlet',
+        laplace_hyperparameter = 1,
+        kernel_type = 'linear',
+        centered = False,
+        nonlinear_hyperparam = 1)
 ```
 ```bash
 [4]
