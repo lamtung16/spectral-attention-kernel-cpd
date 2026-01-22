@@ -137,7 +137,7 @@ Loss = {
 
 
 ################# DYNAMIC PROGRAMMING ################
-def pelt(sequence, pen, model, T=1, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
+def pelt(sequence, pen, model='srbf', T=1, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
     if model == 'L2':
         T = 1
     
@@ -200,7 +200,7 @@ def trace_back(tau_star):
 
 ################# BINARY SEGMENTATION ################
 
-def binseg(sequence, model, n_changepoints=1, T=1, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
+def binseg(sequence, model='srbf', n_changepoints=1, T=1, sigma=1.0, laplace_option='dirichlet', laplace_hyperparameter=1, kernel_type='linear', centered=True, nonlinear_hyperparam=1):
     if model == 'L2':
         T = 1
 

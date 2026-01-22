@@ -1,0 +1,5 @@
+model,mean,variance,frequency,slope,correlation
+linear,0.91,0.15,0.09,0.13,0.18
+cosine,0.81,0.09,0.28,0.27,0.31
+rbf,0.86,0.71,0.14,0.08,0.29
+proposed,0.86,0.58,0.46,0.53,0.44
